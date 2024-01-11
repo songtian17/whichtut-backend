@@ -37,32 +37,37 @@ fastify.get(
   }
 );
 
-async function retriveCourseInfo(sem, courseCode) {
-  const courseRef = db.collection(sem).doc(courseCode);
-  const doc = await courseRef.get();
+async function retriveCourseInfo(semester, courseCode) {
+  const docRef = db.collection(semester).doc(semester);
+  const doc = await docRef.get();
   if (!doc.exists) {
-    const { semester, scheduleData } = await scrapeCourse(courseCode);
-    if (sem !== semester) {
+    const courseSchedule = await scrapeCourse(courseCode);
+    if (courseSchedule.semester !== semester) {
       throw new Error("Semesters do not match");
     }
 
     await db
       .collection(semester)
       .doc(courseCode)
-      .set(scheduleData[courseCode]);
-    return scheduleData[courseCode];
+      .set(courseSchedule);
+    return courseSchedule;
   } else {
     return doc.data();
   }
 }
 
+/**
+ *
+ * @param {string} courseCode
+ * @return { object }
+ */
 async function scrapeCourse(courseCode) {
   const semesterSelectedOptionSelector =
-    'select[name="acadsem"] option[selected="selected"]';
-  const courseSearchInputSelector = 'input[type="text"][name="r_subj_code"]';
-  const courseSearchButtonSelector = 'input[type="button"][value="Search"]';
+    "select[name='acadsem'] option[selected='selected']";
+  const courseSearchInputSelector = "input[type='text'][name='r_subj_code']";
+  const courseSearchButtonSelector = "input[type='button'][value='Search']";
 
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({headless: "new"});
   const page = await browser.newPage();
 
   await page.goto("https://wish.wis.ntu.edu.sg/webexe/owa/aus_schedule.main");
@@ -76,72 +81,73 @@ async function scrapeCourse(courseCode) {
   await page.click(courseSearchButtonSelector);
 
   const newTarget = await browser.waitForTarget(
-    (target) => target.opener() === page.target()
+      (target) => target.opener() === page.target(),
   );
-  const schedulePage = await newTarget.page();
+  const courseSchedulePage = await newTarget.page();
 
-  const scheduleData = await extractScheduleData(schedulePage);
-
-  return { semester, scheduleData };
+  const courseSchedule = await extractCourseSchedule(courseSchedulePage);
+  courseSchedule.semester = semester;
+  return courseSchedule;
 }
 
-async function extractScheduleData(schedulePage) {
+/**
+ *
+ * @param {puppeteer.Page} schedulePage
+ * @return {object}
+ */
+async function extractCourseSchedule(schedulePage) {
   const result = await schedulePage.evaluate(() => {
     const courseCode = document.querySelector(
-      "body > center > table:nth-child(4) > tbody > tr:nth-child(1) > td:nth-child(1)"
+        "body > center > table:nth-child(4) > tbody > tr:nth-child(1) > td:nth-child(1)",
     ).innerText;
     const courseName = document.querySelector(
-      "body > center > table:nth-child(4) > tbody > tr:nth-child(1) > td:nth-child(2)"
+        "body > center > table:nth-child(4) > tbody > tr:nth-child(1) > td:nth-child(2)",
     ).innerText;
     const academicUnits = document.querySelector(
-      "body > center > table:nth-child(4) > tbody > tr:nth-child(1) > td:nth-child(3)"
+        "body > center > table:nth-child(4) > tbody > tr:nth-child(1) > td:nth-child(3)",
     ).innerText;
 
     const scheduleTable = document.querySelector(
-      "body > center > table:nth-child(5) > tbody"
+        "body > center > table:nth-child(5) > tbody",
     );
     const dataRows = Array.from(scheduleTable.children).slice(1);
 
     let currIndex;
-    let indexClasses = [];
-    let indexes = {};
+    const tutorials = [];
     for (const row of dataRows) {
       const column = Array.from(row.children);
       let index = column[0].innerText;
       if (index) {
         currIndex = index;
-        if (indexClasses.length > 0) {
-          indexes[currIndex] = indexClasses;
-        }
-        indexClasses = [];
       } else {
         index = currIndex;
       }
 
       const type = column[1].innerText;
+      if (type !== "TUT") {
+        continue;
+      }
       const group = column[2].innerText;
       const day = column[3].innerText;
       const time = column[4].innerText;
       const venue = column[5].innerText;
       const remark = column[6].innerText;
-      indexClasses.push({ type, group, day, time, venue, remark });
+      tutorials.push({index, group, day, time, venue, remark});
     }
-    indexes[currIndex] = indexClasses;
 
     const courseData = {
       courseName: courseName,
+      courseCode: courseCode,
       academicUnits: academicUnits,
-      indexes: indexes,
+      tutorials: tutorials,
     };
-
-    let res = {};
-    res[courseCode] = courseData;
-    return res;
+    return courseData;
   });
   return result;
 }
 
 fastify.listen({ port: 3000 }, (err) => {
+  console.log("Listening to port 3000")
   if (err) {
     fastify.log.error(err);
     process.exit(1);

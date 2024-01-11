@@ -22,5 +22,8 @@ module.exports = {
     },
     "rules": {
         "no-undef": "warn"
-    }
+    },
+    globals: {
+      "document": "readonly",
+    },
 }
