@@ -6,7 +6,7 @@ const {scrapeCourse} = require("./course");
 
 initializeApp();
 const db = getFirestore();
-setGlobalOptions({region: "asia-southeast1", memory: "512MiB"});
+setGlobalOptions({region: "asia-southeast1", memory: "1GiB"});
 
 exports.getcourseinfo = onRequest(
     {cors: [/whichtutcanicrash.*\.web\.app$/,
